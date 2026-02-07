@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>City Carpool</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Telegram Mini App SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #f5f5f5;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 22px;
+    }
+
+    .info {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #444;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h1>🚗 City Carpool</h1>
+    <p class="info" id="status">Загрузка данных...</p>
+  </div>
+
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+
+    const user = tg.initDataUnsafe?.user;
+
+    if (user) {
+      document.getElementById("status").innerText =
+        `Привет, ${user.first_name}!\nTelegram ID: ${user.id}`;
+    } else {
+      document.getElementById("status").innerText =
+        "Приложение открыто вне Telegram";
+    }
+  </script>
+
+</body>
+</html>

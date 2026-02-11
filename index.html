@@ -48,6 +48,18 @@
 
     const user = tg.initDataUnsafe?.user;
 
+    fetch("http://localhost:8080/auth/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            initData: tg.initData
+        })
+        })
+        .then(res => res.json())
+        .then(data => console.log("Backend:", data))
+        .catch(err => console.error(err));
+
+
     if (user) {
       document.getElementById("status").innerText =
         `Привет, ${user.first_name}!\nTelegram ID: ${user.id}`;
@@ -59,5 +71,3 @@
 
 </body>
 </html>
-
-

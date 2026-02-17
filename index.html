@@ -48,7 +48,7 @@
 
     const user = tg.initDataUnsafe?.user;
 
-    fetch("https://charlette-nonvocational-hilma.ngrok-free.dev ", {
+    fetch("https://charlette-nonvocational-hilma.ngrok-free.dev/auth/telegram", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -26,6 +26,15 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("city-carpool-backend"))
+	})
+
 	mux.HandleFunc("/auth/telegram", func(w http.ResponseWriter, r *http.Request) {
 		var req AuthRequest
 		json.NewDecoder(r.Body).Decode(&req)
@@ -62,11 +71,26 @@ func main() {
 	})
 
 	log.Println("Server running on :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Fatal(http.ListenAndServe(":8080", withCORS(mux)))
 }
 
 func loadEnv() {
 	// Support running from either backend dir or repo root.
 	_ = godotenv.Load(".env")
 	_ = godotenv.Load("../.env")
+}
+
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

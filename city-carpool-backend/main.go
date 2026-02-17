@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 type AuthRequest struct {
@@ -12,6 +14,7 @@ type AuthRequest struct {
 }
 
 func main() {
+	loadEnv()
 	mux := http.NewServeMux()
 
 	if os.Getenv("BOT_TOKEN") == "" {
@@ -60,4 +63,10 @@ func main() {
 
 	log.Println("Server running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
+}
+
+func loadEnv() {
+	// Support running from either backend dir or repo root.
+	_ = godotenv.Load(".env")
+	_ = godotenv.Load("../.env")
 }

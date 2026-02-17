@@ -18,9 +18,15 @@ type TelegramUser struct {
 }
 
 func checkTelegramAuth(initData string) bool {
-	values, _ := url.ParseQuery(initData)
+	values, err := url.ParseQuery(initData)
+	if err != nil {
+		return false
+	}
 
 	hash := values.Get("hash")
+	if hash == "" {
+		return false
+	}
 	values.Del("hash")
 
 	var data []string
@@ -31,11 +37,13 @@ func checkTelegramAuth(initData string) bool {
 	sort.Strings(data)
 	dataCheckString := strings.Join(data, "\n")
 
-	secret := sha256.Sum256([]byte(os.Getenv("BOT_TOKEN")))
-	h := hmac.New(sha256.New, secret[:])
+	secret := hmac.New(sha256.New, []byte("WebAppData"))
+	secret.Write([]byte(os.Getenv("BOT_TOKEN")))
+
+	h := hmac.New(sha256.New, secret.Sum(nil))
 	h.Write([]byte(dataCheckString))
 
-	return hex.EncodeToString(h.Sum(nil)) == hash
+	return hmac.Equal([]byte(hex.EncodeToString(h.Sum(nil))), []byte(hash))
 }
 
 func extractTelegramUser(initData string) (*TelegramUser, error) {

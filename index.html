@@ -163,6 +163,7 @@
     <h1>City Carpool</h1>
     <p class="muted" id="status">Инициализация Mini App...</p>
     <p class="muted" id="apiInfo"></p>
+    <p class="muted" id="netInfo"></p>
   </div>
 
   <div class="card">
@@ -210,11 +211,13 @@
     tg.ready();
     tg.expand();
 
+    const APP_VERSION = "2026-02-24.2";
     const apiFromQuery = new URLSearchParams(window.location.search).get("api");
     const API_BASE = apiFromQuery || "https://charlette-nonvocational-hilma.ngrok-free.dev";
 
     const statusEl = document.getElementById("status");
     const apiInfoEl = document.getElementById("apiInfo");
+    const netInfoEl = document.getElementById("netInfo");
     const formMessageEl = document.getElementById("formMessage");
     const tripsListEl = document.getElementById("tripsList");
     const tripFormEl = document.getElementById("tripForm");
@@ -222,6 +225,7 @@
     const refreshTripsBtn = document.getElementById("refreshTripsBtn");
 
     apiInfoEl.textContent = `API: ${API_BASE}`;
+    netInfoEl.textContent = `Version: ${APP_VERSION}`;
 
     let currentUser = null;
     let tripsState = [];
@@ -288,8 +292,10 @@
         });
         tripsState = Array.isArray(trips) ? trips : [];
         renderTrips(tripsState);
+        netInfoEl.textContent = `Version: ${APP_VERSION} | GET /trips: ok (${tripsState.length})`;
       } catch (error) {
         tripsListEl.innerHTML = `<p class="error">Не удалось загрузить маршруты: ${error.message}</p>`;
+        netInfoEl.textContent = `Version: ${APP_VERSION} | GET /trips: ${error.message}`;
       }
     }
 
@@ -362,6 +368,7 @@
           tripsState = [createdTrip, ...tripsState.filter((trip) => trip.id !== createdTrip.id)];
           renderTrips(tripsState);
         }
+        netInfoEl.textContent = `Version: ${APP_VERSION} | POST /trips: ok (id ${createdTrip?.id ?? "?"})`;
 
         tripFormEl.reset();
         document.getElementById("seatsTotal").value = "3";

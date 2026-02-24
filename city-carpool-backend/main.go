@@ -73,7 +73,7 @@ func main() {
 	mux.HandleFunc("/trips", tripsHandler)
 
 	log.Println("Server running on :8080")
-	log.Fatal(http.ListenAndServe(":8080", withCORS(mux)))
+	log.Fatal(http.ListenAndServe(":8080", withRequestLog(withCORS(mux))))
 }
 
 func loadEnv() {
@@ -93,6 +93,13 @@ func withCORS(next http.Handler) http.Handler {
 			return
 		}
 
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withRequestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s", r.Method, r.URL.Path)
 		next.ServeHTTP(w, r)
 	})
 }

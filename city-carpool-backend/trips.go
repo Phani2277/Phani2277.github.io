@@ -100,7 +100,7 @@ func listTripsHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(
 		`SELECT id, driver_id, from_location, to_location, departure_time, seats_total, seats_available, created_at
 		 FROM trips
-		 ORDER BY departure_time ASC, id ASC`,
+		 ORDER BY created_at DESC, id DESC`,
 	)
 	if err != nil {
 		log.Println("list trips error:", err)

@@ -224,6 +224,7 @@
     apiInfoEl.textContent = `API: ${API_BASE}`;
 
     let currentUser = null;
+    let tripsState = [];
 
     async function apiRequest(path, options = {}) {
       const requestOptions = {
@@ -281,8 +282,12 @@
 
     async function loadTrips() {
       try {
-        const trips = await apiRequest(`/trips?_=${Date.now()}`);
-        renderTrips(Array.isArray(trips) ? trips : []);
+        const trips = await apiRequest(`/trips?_=${Date.now()}`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        });
+        tripsState = Array.isArray(trips) ? trips : [];
+        renderTrips(tripsState);
       } catch (error) {
         tripsListEl.innerHTML = `<p class="error">Не удалось загрузить маршруты: ${error.message}</p>`;
       }
@@ -345,13 +350,19 @@
       };
 
       try {
-        await apiRequest("/trips", {
+        const createdTrip = await apiRequest("/trips", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         formMessageEl.textContent = "Маршрут создан.";
         formMessageEl.className = "ok";
+
+        if (createdTrip && typeof createdTrip.id === "number") {
+          tripsState = [createdTrip, ...tripsState.filter((trip) => trip.id !== createdTrip.id)];
+          renderTrips(tripsState);
+        }
+
         tripFormEl.reset();
         document.getElementById("seatsTotal").value = "3";
         await loadTrips();

@@ -75,6 +75,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/trips", tripsHandler)
+	mux.HandleFunc("/trips/", tripActionsHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {

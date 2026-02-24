@@ -44,6 +44,14 @@ func ensureSchema() error {
 			seats_total INT NOT NULL CHECK (seats_total > 0),
 			seats_available INT NOT NULL CHECK (seats_available >= 0),
 			created_at TIMESTAMP NOT NULL DEFAULT NOW()
+		);
+
+		CREATE TABLE IF NOT EXISTS trip_bookings (
+			id SERIAL PRIMARY KEY,
+			trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+			passenger_id BIGINT NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			UNIQUE (trip_id, passenger_id)
 		)
 	`)
 	return err

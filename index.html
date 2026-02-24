@@ -159,6 +159,25 @@
       line-height: 1.35;
     }
 
+    .trip-actions {
+      margin-top: 10px;
+    }
+
+    .trip-note {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    button.book-btn {
+      padding: 7px 10px;
+      font-size: 13px;
+      background: #0c7a3d;
+    }
+
+    button.book-btn:hover {
+      background: #096731;
+    }
+
     .debug {
       margin-top: 8px;
       padding: 8px;
@@ -232,7 +251,7 @@
     tg.ready();
     tg.expand();
 
-    const APP_VERSION = "2026-02-24.4-debug";
+    const APP_VERSION = "2026-02-24.5-book";
     const apiFromQuery = new URLSearchParams(window.location.search).get("api");
     const API_BASE = apiFromQuery || "https://charlette-nonvocational-hilma.ngrok-free.dev";
 
@@ -324,6 +343,12 @@
 
       trips.forEach((trip, index) => {
         showDebug(`  ${index + 1}. ${trip.from_location} -> ${trip.to_location}`);
+        const isOwnTrip = currentUser && Number(currentUser.id) === Number(trip.driver_id);
+        const canBook = Boolean(currentUser) && !isOwnTrip && trip.seats_available > 0;
+        const tripActionHTML = canBook
+          ? `<button type="button" class="book-btn" data-trip-id="${trip.id}">Забронировать место</button>`
+          : `<span class="trip-note">${isOwnTrip ? "Ваш маршрут" : (trip.seats_available > 0 ? "Требуется авторизация" : "Мест нет")}</span>`;
+
         const card = document.createElement("div");
         card.className = "trip";
         card.innerHTML = `
@@ -333,6 +358,7 @@
             Отправление: ${formatDateTime(trip.departure_time)}<br />
             Места: ${trip.seats_available}/${trip.seats_total}
           </div>
+          <div class="trip-actions">${tripActionHTML}</div>
         `;
         tripsListEl.appendChild(card);
       });
@@ -460,6 +486,48 @@
       debugInfoEl.textContent = '';
       debugInfoEl.style.display = 'none';
       await loadTrips();
+    });
+
+    tripsListEl.addEventListener("click", async (event) => {
+      const button = event.target.closest(".book-btn");
+      if (!button) return;
+      if (!currentUser) {
+        formMessageEl.textContent = "❌ Нужна авторизация в Telegram";
+        formMessageEl.className = "error";
+        return;
+      }
+
+      const tripId = Number(button.dataset.tripId);
+      if (!tripId) return;
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Бронирование...";
+
+      try {
+        const result = await apiRequest(`/trips/${tripId}/book`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ passenger_id: Number(currentUser.id) }),
+        });
+
+        formMessageEl.textContent = "✅ Место забронировано!";
+        formMessageEl.className = "ok";
+        showDebug(`✅ Trip booked: ID ${tripId}`);
+
+        if (result?.trip?.id) {
+          tripsState = tripsState.map((trip) => (trip.id === result.trip.id ? result.trip : trip));
+          renderTrips(tripsState);
+        }
+        await loadTrips();
+      } catch (error) {
+        formMessageEl.textContent = `❌ ${error.message}`;
+        formMessageEl.className = "error";
+        showDebug(`❌ Booking failed: ${error.message}`);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
     });
 
     // Запуск при загрузке

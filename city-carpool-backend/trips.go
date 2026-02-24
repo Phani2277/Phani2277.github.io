@@ -1,11 +1,16 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 type Trip struct {
@@ -27,6 +32,10 @@ type createTripRequest struct {
 	SeatsTotal    int       `json:"seats_total"`
 }
 
+type bookTripRequest struct {
+	PassengerID int64 `json:"passenger_id"`
+}
+
 func tripsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -36,6 +45,35 @@ func tripsHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func tripActionsHandler(w http.ResponseWriter, r *http.Request) {
+	tripID, ok := parseTripBookPath(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	bookTripHandler(w, r, tripID)
+}
+
+func parseTripBookPath(path string) (int, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 3 || parts[0] != "trips" || parts[2] != "book" {
+		return 0, false
+	}
+
+	tripID, err := strconv.Atoi(parts[1])
+	if err != nil || tripID <= 0 {
+		return 0, false
+	}
+
+	return tripID, true
 }
 
 func createTripHandler(w http.ResponseWriter, r *http.Request) {
@@ -146,6 +184,131 @@ func listTripsHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("✅ Returning %d trips", len(trips))
 	writeJSON(w, http.StatusOK, trips)
+}
+
+func bookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
+	var req bookTripRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json body", http.StatusBadRequest)
+		return
+	}
+	if req.PassengerID == 0 {
+		http.Error(w, "passenger_id is required", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		log.Println("begin tx error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	var driverID int64
+	var seatsAvailable int
+	err = tx.QueryRowContext(
+		r.Context(),
+		`SELECT driver_id, seats_available FROM trips WHERE id = $1 FOR UPDATE`,
+		tripID,
+	).Scan(&driverID, &seatsAvailable)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "trip not found", http.StatusNotFound)
+			return
+		}
+		log.Println("trip lookup error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	if req.PassengerID == driverID {
+		http.Error(w, "driver cannot book own trip", http.StatusBadRequest)
+		return
+	}
+	if seatsAvailable <= 0 {
+		http.Error(w, "no seats available", http.StatusConflict)
+		return
+	}
+
+	_, err = tx.ExecContext(
+		r.Context(),
+		`INSERT INTO trip_bookings (trip_id, passenger_id) VALUES ($1, $2)`,
+		tripID,
+		req.PassengerID,
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			http.Error(w, "already booked", http.StatusConflict)
+			return
+		}
+		log.Println("create booking error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	result, err := tx.ExecContext(
+		r.Context(),
+		`UPDATE trips
+		 SET seats_available = seats_available - 1
+		 WHERE id = $1 AND seats_available > 0`,
+		tripID,
+	)
+	if err != nil {
+		log.Println("update seats error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Println("rows affected error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if rowsAffected == 0 {
+		http.Error(w, "no seats available", http.StatusConflict)
+		return
+	}
+
+	var trip Trip
+	err = tx.QueryRowContext(
+		r.Context(),
+		`SELECT id, driver_id, from_location, to_location, departure_time, seats_total, seats_available, created_at
+		 FROM trips
+		 WHERE id = $1`,
+		tripID,
+	).Scan(
+		&trip.ID,
+		&trip.DriverID,
+		&trip.FromLocation,
+		&trip.ToLocation,
+		&trip.DepartureTime,
+		&trip.SeatsTotal,
+		&trip.SeatsAvailable,
+		&trip.CreatedAt,
+	)
+	if err != nil {
+		log.Println("fetch booked trip error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Println("commit booking error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "booked",
+		"trip":   trip,
+	})
+}
+
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && string(pqErr.Code) == "23505"
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {

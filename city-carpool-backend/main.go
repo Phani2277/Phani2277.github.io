@@ -70,6 +70,8 @@ func main() {
 		})
 	})
 
+	mux.HandleFunc("/trips", tripsHandler)
+
 	log.Println("Server running on :8080")
 	log.Fatal(http.ListenAndServe(":8080", withCORS(mux)))
 }

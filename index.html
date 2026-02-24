@@ -9,64 +9,363 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
   <style>
+    :root {
+      --bg: #f0f4ff;
+      --card: #ffffff;
+      --text: #11203a;
+      --muted: #54627a;
+      --accent: #1263ff;
+      --accent-strong: #0d4fcc;
+      --line: #d8e0f0;
+      --danger: #c52135;
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
-      padding: 16px;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      background-color: #f5f5f5;
+      padding: 20px;
+      font-family: "Segoe UI", "Noto Sans", sans-serif;
+      background:
+        radial-gradient(circle at 10% 0%, #dbe8ff 0%, transparent 35%),
+        radial-gradient(circle at 100% 100%, #d5ffe8 0%, transparent 30%),
+        var(--bg);
+      color: var(--text);
     }
 
     .card {
-      background: #ffffff;
-      border-radius: 14px;
-      padding: 16px;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 18px;
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 24px rgba(20, 41, 84, 0.08);
+      margin-bottom: 14px;
     }
 
     h1 {
-      margin-top: 0;
+      margin: 0 0 12px 0;
       font-size: 22px;
     }
 
-    .info {
-      margin-top: 12px;
+    h2 {
+      margin: 0 0 10px 0;
+      font-size: 18px;
+    }
+
+    .muted {
       font-size: 14px;
-      color: #444;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .ok {
+      color: #0c7a3d;
+    }
+
+    .error {
+      color: var(--danger);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    label {
+      font-size: 13px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      font-size: 14px;
+      background: #fff;
+      color: var(--text);
+    }
+
+    input:focus {
+      border-color: var(--accent);
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(18, 99, 255, 0.14);
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+
+    button:hover {
+      background: var(--accent-strong);
+    }
+
+    button.secondary {
+      background: #e6eeff;
+      color: #173264;
+    }
+
+    #tripsList {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .trip {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fcfdff;
+    }
+
+    .trip-route {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .trip-meta {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    @media (min-width: 700px) {
+      .row {
+        grid-template-columns: 1fr 1fr;
+      }
     }
   </style>
 </head>
 <body>
 
   <div class="card">
-    <h1>🚗 City Carpool</h1>
-    <p class="info" id="status">Загрузка данных...</p>
+    <h1>City Carpool</h1>
+    <p class="muted" id="status">Инициализация Mini App...</p>
+    <p class="muted" id="apiInfo"></p>
+  </div>
+
+  <div class="card">
+    <h2>Создать маршрут</h2>
+    <form id="tripForm">
+      <div class="row">
+        <div>
+          <label for="fromLocation">Откуда</label>
+          <input id="fromLocation" name="fromLocation" type="text" placeholder="Например: Алматы" required />
+        </div>
+        <div>
+          <label for="toLocation">Куда</label>
+          <input id="toLocation" name="toLocation" type="text" placeholder="Например: Астана" required />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="departureTime">Время отправления</label>
+          <input id="departureTime" name="departureTime" type="datetime-local" required />
+        </div>
+        <div>
+          <label for="seatsTotal">Мест</label>
+          <input id="seatsTotal" name="seatsTotal" type="number" min="1" value="3" required />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" id="createTripBtn">Создать</button>
+        <button type="button" class="secondary" id="refreshTripsBtn">Обновить список</button>
+      </div>
+    </form>
+    <p class="muted" id="formMessage"></p>
+  </div>
+
+  <div class="card">
+    <h2>Маршруты</h2>
+    <div id="tripsList">
+      <p class="muted">Загрузка...</p>
+    </div>
   </div>
 
   <script>
     const tg = window.Telegram.WebApp;
     tg.ready();
+    tg.expand();
 
-    const user = tg.initDataUnsafe?.user;
+    const apiFromQuery = new URLSearchParams(window.location.search).get("api");
+    const API_BASE = apiFromQuery || "https://charlette-nonvocational-hilma.ngrok-free.dev";
 
-    fetch("https://charlette-nonvocational-hilma.ngrok-free.dev/auth/telegram", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            initData: tg.initData
-        })
-        })
-        .then(res => res.json())
-        .then(data => console.log("Backend:", data))
-        .catch(err => console.error(err));
+    const statusEl = document.getElementById("status");
+    const apiInfoEl = document.getElementById("apiInfo");
+    const formMessageEl = document.getElementById("formMessage");
+    const tripsListEl = document.getElementById("tripsList");
+    const tripFormEl = document.getElementById("tripForm");
+    const createTripBtn = document.getElementById("createTripBtn");
+    const refreshTripsBtn = document.getElementById("refreshTripsBtn");
 
+    apiInfoEl.textContent = `API: ${API_BASE}`;
 
-    if (user) {
-      document.getElementById("status").innerText =
-        `Привет, ${user.first_name}!\nTelegram ID: ${user.id}`;
-    } else {
-      document.getElementById("status").innerText =
-        "Приложение открыто вне Telegram";
+    let currentUser = null;
+
+    async function apiRequest(path, options = {}) {
+      const response = await fetch(`${API_BASE}${path}`, options);
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (_) {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const message = payload?.error || payload?.message || `HTTP ${response.status}`;
+        throw new Error(message);
+      }
+      return payload;
     }
+
+    function setFormEnabled(enabled) {
+      tripFormEl.querySelectorAll("input, button").forEach((el) => {
+        el.disabled = !enabled;
+      });
+    }
+
+    function formatDateTime(isoDate) {
+      const date = new Date(isoDate);
+      if (Number.isNaN(date.getTime())) return isoDate;
+      return date.toLocaleString("ru-RU", { hour12: false });
+    }
+
+    function renderTrips(trips) {
+      tripsListEl.innerHTML = "";
+      if (!trips.length) {
+        tripsListEl.innerHTML = `<p class="muted">Пока нет маршрутов.</p>`;
+        return;
+      }
+
+      trips.forEach((trip) => {
+        const card = document.createElement("div");
+        card.className = "trip";
+        card.innerHTML = `
+          <div class="trip-route">${trip.from_location} -> ${trip.to_location}</div>
+          <div class="trip-meta">
+            Водитель ID: ${trip.driver_id}<br />
+            Отправление: ${formatDateTime(trip.departure_time)}<br />
+            Места: ${trip.seats_available}/${trip.seats_total}
+          </div>
+        `;
+        tripsListEl.appendChild(card);
+      });
+    }
+
+    async function loadTrips() {
+      try {
+        const trips = await apiRequest("/trips");
+        renderTrips(Array.isArray(trips) ? trips : []);
+      } catch (error) {
+        tripsListEl.innerHTML = `<p class="error">Не удалось загрузить маршруты: ${error.message}</p>`;
+      }
+    }
+
+    async function authenticate() {
+      if (!tg.initData) {
+        statusEl.textContent = "Открой Mini App из Telegram, чтобы авторизоваться.";
+        statusEl.className = "error";
+        setFormEnabled(false);
+        return;
+      }
+
+      try {
+        const authData = await apiRequest("/auth/telegram", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ initData: tg.initData }),
+        });
+
+        currentUser = authData?.user || tg.initDataUnsafe?.user || null;
+        if (!currentUser) {
+          throw new Error("Пользователь не найден в initData");
+        }
+
+        statusEl.textContent = `Вы вошли как ${currentUser.first_name} (ID: ${currentUser.id})`;
+        statusEl.className = "ok";
+        setFormEnabled(true);
+      } catch (error) {
+        statusEl.textContent = `Ошибка авторизации: ${error.message}`;
+        statusEl.className = "error";
+        setFormEnabled(false);
+      }
+    }
+
+    tripFormEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!currentUser) return;
+
+      formMessageEl.textContent = "Создание маршрута...";
+      formMessageEl.className = "muted";
+      createTripBtn.disabled = true;
+
+      const departureInput = document.getElementById("departureTime").value;
+      const departureDate = new Date(departureInput);
+      if (Number.isNaN(departureDate.getTime())) {
+        formMessageEl.textContent = "Некорректная дата отправления.";
+        formMessageEl.className = "error";
+        createTripBtn.disabled = false;
+        return;
+      }
+      const departureISO = departureDate.toISOString();
+
+      const payload = {
+        driver_id: Number(currentUser.id),
+        from_location: document.getElementById("fromLocation").value.trim(),
+        to_location: document.getElementById("toLocation").value.trim(),
+        departure_time: departureISO,
+        seats_total: Number(document.getElementById("seatsTotal").value),
+      };
+
+      try {
+        await apiRequest("/trips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        formMessageEl.textContent = "Маршрут создан.";
+        formMessageEl.className = "ok";
+        tripFormEl.reset();
+        document.getElementById("seatsTotal").value = "3";
+        await loadTrips();
+      } catch (error) {
+        formMessageEl.textContent = `Ошибка создания: ${error.message}`;
+        formMessageEl.className = "error";
+      } finally {
+        createTripBtn.disabled = false;
+      }
+    });
+
+    refreshTripsBtn.addEventListener("click", loadTrips);
+
+    (async () => {
+      setFormEnabled(false);
+      await authenticate();
+      await loadTrips();
+    })();
   </script>
 
 </body>

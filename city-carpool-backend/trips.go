@@ -95,6 +95,8 @@ func createTripHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func listTripsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+
 	rows, err := db.Query(
 		`SELECT id, driver_id, from_location, to_location, departure_time, seats_total, seats_available, created_at
 		 FROM trips

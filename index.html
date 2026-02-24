@@ -226,7 +226,11 @@
     let currentUser = null;
 
     async function apiRequest(path, options = {}) {
-      const response = await fetch(`${API_BASE}${path}`, options);
+      const requestOptions = {
+        cache: "no-store",
+        ...options,
+      };
+      const response = await fetch(`${API_BASE}${path}`, requestOptions);
       let payload = null;
       try {
         payload = await response.json();
@@ -277,7 +281,7 @@
 
     async function loadTrips() {
       try {
-        const trips = await apiRequest("/trips");
+        const trips = await apiRequest(`/trips?_=${Date.now()}`);
         renderTrips(Array.isArray(trips) ? trips : []);
       } catch (error) {
         tripsListEl.innerHTML = `<p class="error">Не удалось загрузить маршруты: ${error.message}</p>`;

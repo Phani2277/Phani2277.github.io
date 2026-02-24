@@ -36,6 +36,19 @@ type bookTripRequest struct {
 	PassengerID int64 `json:"passenger_id"`
 }
 
+type MyBooking struct {
+	BookingID      int       `json:"booking_id"`
+	BookedAt       time.Time `json:"booked_at"`
+	TripID         int       `json:"trip_id"`
+	DriverID       int64     `json:"driver_id"`
+	FromLocation   string    `json:"from_location"`
+	ToLocation     string    `json:"to_location"`
+	DepartureTime  time.Time `json:"departure_time"`
+	SeatsTotal     int       `json:"seats_total"`
+	SeatsAvailable int       `json:"seats_available"`
+	TripCreatedAt  time.Time `json:"trip_created_at"`
+}
+
 func tripsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -184,6 +197,80 @@ func listTripsHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("✅ Returning %d trips", len(trips))
 	writeJSON(w, http.StatusOK, trips)
+}
+
+func myBookingsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	passengerIDParam := strings.TrimSpace(r.URL.Query().Get("passenger_id"))
+	if passengerIDParam == "" {
+		http.Error(w, "passenger_id is required", http.StatusBadRequest)
+		return
+	}
+
+	passengerID, err := strconv.ParseInt(passengerIDParam, 10, 64)
+	if err != nil || passengerID == 0 {
+		http.Error(w, "invalid passenger_id", http.StatusBadRequest)
+		return
+	}
+
+	rows, err := db.Query(
+		`SELECT
+			b.id,
+			b.created_at,
+			t.id,
+			t.driver_id,
+			t.from_location,
+			t.to_location,
+			t.departure_time,
+			t.seats_total,
+			t.seats_available,
+			t.created_at
+		FROM trip_bookings b
+		JOIN trips t ON t.id = b.trip_id
+		WHERE b.passenger_id = $1
+		ORDER BY b.created_at DESC, b.id DESC`,
+		passengerID,
+	)
+	if err != nil {
+		log.Println("list my bookings query error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	bookings := make([]MyBooking, 0)
+	for rows.Next() {
+		var booking MyBooking
+		if err := rows.Scan(
+			&booking.BookingID,
+			&booking.BookedAt,
+			&booking.TripID,
+			&booking.DriverID,
+			&booking.FromLocation,
+			&booking.ToLocation,
+			&booking.DepartureTime,
+			&booking.SeatsTotal,
+			&booking.SeatsAvailable,
+			&booking.TripCreatedAt,
+		); err != nil {
+			log.Println("scan my booking error:", err)
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		bookings = append(bookings, booking)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Println("iterate my bookings error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, bookings)
 }
 
 func bookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {

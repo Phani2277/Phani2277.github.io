@@ -178,6 +178,19 @@
       background: #096731;
     }
 
+    #myBookingsList {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .booking {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #f9fff9;
+    }
+
     .debug {
       margin-top: 8px;
       padding: 8px;
@@ -246,12 +259,22 @@
     <div id="debugInfo" class="debug" style="display:none;"></div>
   </div>
 
+  <div class="card">
+    <h2>Мои бронирования</h2>
+    <div class="actions">
+      <button type="button" class="secondary" id="refreshBookingsBtn">Обновить бронирования</button>
+    </div>
+    <div id="myBookingsList">
+      <p class="muted">Загрузка...</p>
+    </div>
+  </div>
+
   <script>
     const tg = window.Telegram.WebApp;
     tg.ready();
     tg.expand();
 
-    const APP_VERSION = "2026-02-24.5-book";
+    const APP_VERSION = "2026-02-24.6-bookings";
     const apiFromQuery = new URLSearchParams(window.location.search).get("api");
     const API_BASE = apiFromQuery || "https://charlette-nonvocational-hilma.ngrok-free.dev";
 
@@ -264,12 +287,15 @@
     const tripFormEl = document.getElementById("tripForm");
     const createTripBtn = document.getElementById("createTripBtn");
     const refreshTripsBtn = document.getElementById("refreshTripsBtn");
+    const refreshBookingsBtn = document.getElementById("refreshBookingsBtn");
+    const myBookingsListEl = document.getElementById("myBookingsList");
 
     apiInfoEl.textContent = `API: ${API_BASE}`;
     netInfoEl.textContent = `Version: ${APP_VERSION}`;
 
     let currentUser = null;
     let tripsState = [];
+    let myBookingsState = [];
 
     function showDebug(message) {
       console.log(message);
@@ -396,6 +422,51 @@
       }
     }
 
+    function renderMyBookings(bookings) {
+      myBookingsListEl.innerHTML = "";
+      if (!bookings || !bookings.length) {
+        myBookingsListEl.innerHTML = `<p class="warning">У вас пока нет бронирований.</p>`;
+        return;
+      }
+
+      bookings.forEach((booking) => {
+        const card = document.createElement("div");
+        card.className = "booking";
+        card.innerHTML = `
+          <div class="trip-route">${booking.from_location} → ${booking.to_location}</div>
+          <div class="trip-meta">
+            Trip ID: ${booking.trip_id}<br />
+            Водитель ID: ${booking.driver_id}<br />
+            Отправление: ${formatDateTime(booking.departure_time)}<br />
+            Забронировано: ${formatDateTime(booking.booked_at)}<br />
+            Места сейчас: ${booking.seats_available}/${booking.seats_total}
+          </div>
+        `;
+        myBookingsListEl.appendChild(card);
+      });
+    }
+
+    async function loadMyBookings() {
+      if (!currentUser) {
+        myBookingsListEl.innerHTML = `<p class="muted">Требуется авторизация.</p>`;
+        return;
+      }
+
+      try {
+        const bookings = await apiRequest(`/my/bookings?passenger_id=${Number(currentUser.id)}&_=${Date.now()}`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        myBookingsState = Array.isArray(bookings) ? bookings : [];
+        renderMyBookings(myBookingsState);
+      } catch (error) {
+        myBookingsListEl.innerHTML = `<p class="error">Ошибка загрузки бронирований: ${error.message}</p>`;
+      }
+    }
+
     async function authenticate() {
       if (!tg.initData) {
         statusEl.textContent = "⚠️ Открой Mini App из Telegram для авторизации";
@@ -488,6 +559,10 @@
       await loadTrips();
     });
 
+    refreshBookingsBtn.addEventListener("click", async () => {
+      await loadMyBookings();
+    });
+
     tripsListEl.addEventListener("click", async (event) => {
       const button = event.target.closest(".book-btn");
       if (!button) return;
@@ -519,6 +594,7 @@
           tripsState = tripsState.map((trip) => (trip.id === result.trip.id ? result.trip : trip));
           renderTrips(tripsState);
         }
+        await loadMyBookings();
         await loadTrips();
       } catch (error) {
         formMessageEl.textContent = `❌ ${error.message}`;
@@ -535,6 +611,7 @@
       setFormEnabled(false);
       await authenticate();
       await loadTrips();
+      await loadMyBookings();
     })();
   </script>
 

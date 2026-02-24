@@ -69,6 +69,10 @@
       color: var(--danger);
     }
 
+    .warning {
+      color: #d97706;
+    }
+
     .row {
       display: grid;
       grid-template-columns: 1fr;
@@ -120,6 +124,11 @@
       background: var(--accent-strong);
     }
 
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     button.secondary {
       background: #e6eeff;
       color: #173264;
@@ -150,6 +159,17 @@
       line-height: 1.35;
     }
 
+    .debug {
+      margin-top: 8px;
+      padding: 8px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: monospace;
+      color: #666;
+      word-break: break-all;
+    }
+
     @media (min-width: 700px) {
       .row {
         grid-template-columns: 1fr 1fr;
@@ -160,7 +180,7 @@
 <body>
 
   <div class="card">
-    <h1>City Carpool</h1>
+    <h1>🚗 City Carpool</h1>
     <p class="muted" id="status">Инициализация Mini App...</p>
     <p class="muted" id="apiInfo"></p>
     <p class="muted" id="netInfo"></p>
@@ -204,6 +224,7 @@
     <div id="tripsList">
       <p class="muted">Загрузка...</p>
     </div>
+    <div id="debugInfo" class="debug" style="display:none;"></div>
   </div>
 
   <script>
@@ -211,7 +232,7 @@
     tg.ready();
     tg.expand();
 
-    const APP_VERSION = "2026-02-24.3";
+    const APP_VERSION = "2026-02-24.4-debug";
     const apiFromQuery = new URLSearchParams(window.location.search).get("api");
     const API_BASE = apiFromQuery || "https://charlette-nonvocational-hilma.ngrok-free.dev";
 
@@ -220,6 +241,7 @@
     const netInfoEl = document.getElementById("netInfo");
     const formMessageEl = document.getElementById("formMessage");
     const tripsListEl = document.getElementById("tripsList");
+    const debugInfoEl = document.getElementById("debugInfo");
     const tripFormEl = document.getElementById("tripForm");
     const createTripBtn = document.getElementById("createTripBtn");
     const refreshTripsBtn = document.getElementById("refreshTripsBtn");
@@ -230,24 +252,53 @@
     let currentUser = null;
     let tripsState = [];
 
+    function showDebug(message) {
+      console.log(message);
+      debugInfoEl.style.display = 'block';
+      debugInfoEl.textContent += message + '\n';
+    }
+
     async function apiRequest(path, options = {}) {
+      const url = `${API_BASE}${path}`;
+      showDebug(`🔄 ${options.method || 'GET'} ${url}`);
+
       const requestOptions = {
         cache: "no-store",
         ...options,
+        headers: {
+          // ВАЖНО для ngrok: пропускаем warning страницу
+          'ngrok-skip-browser-warning': 'true',
+          ...options.headers,
+        },
       };
-      const response = await fetch(`${API_BASE}${path}`, requestOptions);
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch (_) {
-        payload = null;
-      }
 
-      if (!response.ok) {
-        const message = payload?.error || payload?.message || `HTTP ${response.status}`;
-        throw new Error(message);
+      try {
+        const response = await fetch(url, requestOptions);
+        showDebug(`📡 Response status: ${response.status}`);
+
+        let payload = null;
+        const contentType = response.headers.get('content-type');
+        showDebug(`📄 Content-Type: ${contentType}`);
+
+        if (contentType && contentType.includes('application/json')) {
+          payload = await response.json();
+          showDebug(`📦 Response: ${JSON.stringify(payload).substring(0, 200)}`);
+        } else {
+          const text = await response.text();
+          showDebug(`📄 Response text: ${text.substring(0, 200)}`);
+          payload = null;
+        }
+
+        if (!response.ok) {
+          const message = payload?.error || payload?.message || `HTTP ${response.status}`;
+          throw new Error(message);
+        }
+
+        return payload;
+      } catch (error) {
+        showDebug(`❌ Error: ${error.message}`);
+        throw error;
       }
-      return payload;
     }
 
     function setFormEnabled(enabled) {
@@ -263,17 +314,20 @@
     }
 
     function renderTrips(trips) {
+      showDebug(`🎨 Rendering ${trips.length} trips`);
       tripsListEl.innerHTML = "";
-      if (!trips.length) {
-        tripsListEl.innerHTML = `<p class="muted">Пока нет маршрутов.</p>`;
+      
+      if (!trips || !trips.length) {
+        tripsListEl.innerHTML = `<p class="warning">Пока нет маршрутов. Создайте первый!</p>`;
         return;
       }
 
-      trips.forEach((trip) => {
+      trips.forEach((trip, index) => {
+        showDebug(`  ${index + 1}. ${trip.from_location} -> ${trip.to_location}`);
         const card = document.createElement("div");
         card.className = "trip";
         card.innerHTML = `
-          <div class="trip-route">${trip.from_location} -> ${trip.to_location}</div>
+          <div class="trip-route">${trip.from_location} → ${trip.to_location}</div>
           <div class="trip-meta">
             Водитель ID: ${trip.driver_id}<br />
             Отправление: ${formatDateTime(trip.departure_time)}<br />
@@ -285,28 +339,46 @@
     }
 
     async function loadTrips() {
+      showDebug('📋 Loading trips...');
       try {
         const trips = await apiRequest(`/trips?_=${Date.now()}`, {
           method: "GET",
-          headers: { Accept: "application/json" },
+          headers: { 
+            Accept: "application/json",
+          },
         });
-        tripsState = Array.isArray(trips) ? trips : [];
-        renderTrips(tripsState);
-        netInfoEl.textContent = `Version: ${APP_VERSION} | GET /trips: ok (${tripsState.length})`;
+
+        showDebug(`✅ Got response, type: ${typeof trips}, is array: ${Array.isArray(trips)}`);
+        
+        if (Array.isArray(trips)) {
+          tripsState = trips;
+          renderTrips(tripsState);
+          netInfoEl.textContent = `Version: ${APP_VERSION} | ✅ ${tripsState.length} маршрутов`;
+        } else if (trips && Array.isArray(trips.trips)) {
+          // Если вернулся объект с полем trips
+          tripsState = trips.trips;
+          renderTrips(tripsState);
+          netInfoEl.textContent = `Version: ${APP_VERSION} | ✅ ${tripsState.length} маршрутов`;
+        } else {
+          showDebug(`⚠️ Unexpected response format`);
+          tripsListEl.innerHTML = `<p class="error">Неожиданный формат ответа от сервера</p>`;
+        }
       } catch (error) {
-        tripsListEl.innerHTML = `<p class="error">Не удалось загрузить маршруты: ${error.message}</p>`;
-        netInfoEl.textContent = `Version: ${APP_VERSION} | GET /trips: ${error.message}`;
+        showDebug(`❌ Load trips failed: ${error.message}`);
+        tripsListEl.innerHTML = `<p class="error">Ошибка загрузки: ${error.message}</p>`;
+        netInfoEl.textContent = `Version: ${APP_VERSION} | ❌ ${error.message}`;
       }
     }
 
     async function authenticate() {
       if (!tg.initData) {
-        statusEl.textContent = "Открой Mini App из Telegram, чтобы авторизоваться.";
-        statusEl.className = "error";
+        statusEl.textContent = "⚠️ Открой Mini App из Telegram для авторизации";
+        statusEl.className = "warning";
         setFormEnabled(false);
         return;
       }
 
+      showDebug('🔐 Authenticating...');
       try {
         const authData = await apiRequest("/auth/telegram", {
           method: "POST",
@@ -319,13 +391,15 @@
           throw new Error("Пользователь не найден в initData");
         }
 
-        statusEl.textContent = `Вы вошли как ${currentUser.first_name} (ID: ${currentUser.id})`;
+        statusEl.textContent = `✅ ${currentUser.first_name} (ID: ${currentUser.id})`;
         statusEl.className = "ok";
         setFormEnabled(true);
+        showDebug(`✅ Authenticated as ${currentUser.first_name}`);
       } catch (error) {
-        statusEl.textContent = `Ошибка авторизации: ${error.message}`;
+        statusEl.textContent = `❌ Ошибка авторизации: ${error.message}`;
         statusEl.className = "error";
         setFormEnabled(false);
+        showDebug(`❌ Auth failed: ${error.message}`);
       }
     }
 
@@ -355,34 +429,40 @@
         seats_total: Number(document.getElementById("seatsTotal").value),
       };
 
+      showDebug(`🚀 Creating trip: ${JSON.stringify(payload)}`);
+
       try {
         const createdTrip = await apiRequest("/trips", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        formMessageEl.textContent = "Маршрут создан.";
+
+        formMessageEl.textContent = "✅ Маршрут создан!";
         formMessageEl.className = "ok";
 
-        if (createdTrip && typeof createdTrip.id === "number") {
-          tripsState = [createdTrip, ...tripsState.filter((trip) => trip.id !== createdTrip.id)];
-          renderTrips(tripsState);
-        }
-        netInfoEl.textContent = `Version: ${APP_VERSION} | POST /trips: ok (id ${createdTrip?.id ?? "?"})`;
+        showDebug(`✅ Trip created: ID ${createdTrip?.id}`);
 
         tripFormEl.reset();
         document.getElementById("seatsTotal").value = "3";
+        
+        // Обновляем список
         await loadTrips();
       } catch (error) {
-        formMessageEl.textContent = `Ошибка создания: ${error.message}`;
+        formMessageEl.textContent = `❌ ${error.message}`;
         formMessageEl.className = "error";
       } finally {
         createTripBtn.disabled = false;
       }
     });
 
-    refreshTripsBtn.addEventListener("click", loadTrips);
+    refreshTripsBtn.addEventListener("click", async () => {
+      debugInfoEl.textContent = '';
+      debugInfoEl.style.display = 'none';
+      await loadTrips();
+    });
 
+    // Запуск при загрузке
     (async () => {
       setFormEnabled(false);
       await authenticate();

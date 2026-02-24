@@ -41,6 +41,7 @@ func tripsHandler(w http.ResponseWriter, r *http.Request) {
 func createTripHandler(w http.ResponseWriter, r *http.Request) {
 	var req createTripRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Println("decode error:", err)
 		http.Error(w, "invalid json body", http.StatusBadRequest)
 		return
 	}
@@ -91,11 +92,19 @@ func createTripHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("✅ Created trip: ID=%d, %s -> %s", trip.ID, trip.FromLocation, trip.ToLocation)
 	writeJSON(w, http.StatusCreated, trip)
 }
 
 func listTripsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("📋 GET /trips - fetching trips...")
+
 	w.Header().Set("Cache-Control", "no-store")
+
+	// Сначала проверим сколько записей в БД
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM trips").Scan(&count)
+	log.Printf("📊 Total trips in DB: %d", count)
 
 	rows, err := db.Query(
 		`SELECT id, driver_id, from_location, to_location, departure_time, seats_total, seats_available, created_at
@@ -103,7 +112,7 @@ func listTripsHandler(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY created_at DESC, id DESC`,
 	)
 	if err != nil {
-		log.Println("list trips error:", err)
+		log.Println("❌ list trips query error:", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
 	}
@@ -122,7 +131,7 @@ func listTripsHandler(w http.ResponseWriter, r *http.Request) {
 			&trip.SeatsAvailable,
 			&trip.CreatedAt,
 		); err != nil {
-			log.Println("scan trip error:", err)
+			log.Println("❌ scan trip error:", err)
 			http.Error(w, "db error", http.StatusInternalServerError)
 			return
 		}
@@ -130,11 +139,12 @@ func listTripsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Println("iterate trips error:", err)
+		log.Println("❌ iterate trips error:", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("✅ Returning %d trips", len(trips))
 	writeJSON(w, http.StatusOK, trips)
 }
 
@@ -142,6 +152,6 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		log.Println("write json error:", err)
+		log.Println("❌ write json error:", err)
 	}
 }

@@ -40,12 +40,14 @@ func main() {
 		json.NewDecoder(r.Body).Decode(&req)
 
 		if !checkTelegramAuth(req.InitData) {
+			log.Println("❌ Telegram auth failed")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		user, err := extractTelegramUser(req.InitData)
 		if err != nil || user == nil {
+			log.Println("❌ Bad user data:", err)
 			http.Error(w, "bad user data", http.StatusBadRequest)
 			return
 		}
@@ -58,10 +60,12 @@ func main() {
 			user.FirstName,
 			user.Username,
 		); err != nil {
-			log.Println("db insert error:", err)
+			log.Println("❌ db insert error:", err)
 			http.Error(w, "db error", http.StatusInternalServerError)
 			return
 		}
+
+		log.Printf("✅ User authenticated: %s (ID: %d)", user.FirstName, user.ID)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -72,8 +76,14 @@ func main() {
 
 	mux.HandleFunc("/trips", tripsHandler)
 
-	log.Println("Server running on :8080")
-	log.Fatal(http.ListenAndServe(":8080", withRequestLog(withCORS(mux))))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Println("🚀 Server running on :" + port)
+	log.Println("📊 Database connected")
+	log.Fatal(http.ListenAndServe(":"+port, withRequestLog(withCORS(mux))))
 }
 
 func loadEnv() {
@@ -84,9 +94,17 @@ func loadEnv() {
 
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// ВАЖНО: для ngrok нужны эти заголовки
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, ngrok-skip-browser-warning")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -99,7 +117,7 @@ func withCORS(next http.Handler) http.Handler {
 
 func withRequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s", r.Method, r.URL.Path)
+		log.Printf("📥 %s %s (Origin: %s)", r.Method, r.URL.Path, r.Header.Get("Origin"))
 		next.ServeHTTP(w, r)
 	})
 }

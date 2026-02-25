@@ -191,6 +191,33 @@
       background: #f9fff9;
     }
 
+    #myTripsList {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .my-trip {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fffef8;
+    }
+
+    .booking-actions {
+      margin-top: 10px;
+    }
+
+    button.cancel-btn {
+      padding: 7px 10px;
+      font-size: 13px;
+      background: #c52135;
+    }
+
+    button.cancel-btn:hover {
+      background: #a41c2d;
+    }
+
     .debug {
       margin-top: 8px;
       padding: 8px;
@@ -269,12 +296,22 @@
     </div>
   </div>
 
+  <div class="card">
+    <h2>Мои маршруты</h2>
+    <div class="actions">
+      <button type="button" class="secondary" id="refreshMyTripsBtn">Обновить мои маршруты</button>
+    </div>
+    <div id="myTripsList">
+      <p class="muted">Загрузка...</p>
+    </div>
+  </div>
+
   <script>
     const tg = window.Telegram.WebApp;
     tg.ready();
     tg.expand();
 
-    const APP_VERSION = "2026-02-24.6-bookings";
+    const APP_VERSION = "2026-02-24.7-driver";
     const APP_URL = new URL(window.location.href);
     if (!APP_URL.searchParams.has("cb")) {
       APP_URL.searchParams.set("cb", String(Date.now()));
@@ -301,6 +338,8 @@
     const refreshTripsBtn = document.getElementById("refreshTripsBtn");
     const refreshBookingsBtn = document.getElementById("refreshBookingsBtn");
     const myBookingsListEl = document.getElementById("myBookingsList");
+    const refreshMyTripsBtn = document.getElementById("refreshMyTripsBtn");
+    const myTripsListEl = document.getElementById("myTripsList");
 
     apiInfoEl.textContent = `API: ${API_BASE}`;
     netInfoEl.textContent = `Version: ${APP_VERSION}`;
@@ -308,6 +347,7 @@
     let currentUser = null;
     let tripsState = [];
     let myBookingsState = [];
+    let myTripsState = [];
 
     function showDebug(message) {
       console.log(message);
@@ -453,6 +493,9 @@
             Забронировано: ${formatDateTime(booking.booked_at)}<br />
             Места сейчас: ${booking.seats_available}/${booking.seats_total}
           </div>
+          <div class="booking-actions">
+            <button type="button" class="cancel-btn" data-trip-id="${booking.trip_id}">Отменить бронирование</button>
+          </div>
         `;
         myBookingsListEl.appendChild(card);
       });
@@ -476,6 +519,50 @@
         renderMyBookings(myBookingsState);
       } catch (error) {
         myBookingsListEl.innerHTML = `<p class="error">Ошибка загрузки бронирований: ${error.message}</p>`;
+      }
+    }
+
+    function renderMyTrips(trips) {
+      myTripsListEl.innerHTML = "";
+      if (!trips || !trips.length) {
+        myTripsListEl.innerHTML = `<p class="warning">Вы еще не создали ни одного маршрута.</p>`;
+        return;
+      }
+
+      trips.forEach((trip) => {
+        const card = document.createElement("div");
+        card.className = "my-trip";
+        card.innerHTML = `
+          <div class="trip-route">${trip.from_location} → ${trip.to_location}</div>
+          <div class="trip-meta">
+            Trip ID: ${trip.id}<br />
+            Отправление: ${formatDateTime(trip.departure_time)}<br />
+            Бронирований: ${trip.bookings_count}<br />
+            Места: ${trip.seats_available}/${trip.seats_total}
+          </div>
+        `;
+        myTripsListEl.appendChild(card);
+      });
+    }
+
+    async function loadMyTrips() {
+      if (!currentUser) {
+        myTripsListEl.innerHTML = `<p class="muted">Требуется авторизация.</p>`;
+        return;
+      }
+
+      try {
+        const trips = await apiRequest(`/my/trips?driver_id=${Number(currentUser.id)}&_=${Date.now()}`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        myTripsState = Array.isArray(trips) ? trips : [];
+        renderMyTrips(myTripsState);
+      } catch (error) {
+        myTripsListEl.innerHTML = `<p class="error">Ошибка загрузки ваших маршрутов: ${error.message}</p>`;
       }
     }
 
@@ -556,6 +643,7 @@
         document.getElementById("seatsTotal").value = "3";
         
         // Обновляем список
+        await loadMyTrips();
         await loadTrips();
       } catch (error) {
         formMessageEl.textContent = `❌ ${error.message}`;
@@ -573,6 +661,10 @@
 
     refreshBookingsBtn.addEventListener("click", async () => {
       await loadMyBookings();
+    });
+
+    refreshMyTripsBtn.addEventListener("click", async () => {
+      await loadMyTrips();
     });
 
     tripsListEl.addEventListener("click", async (event) => {
@@ -607,11 +699,46 @@
           renderTrips(tripsState);
         }
         await loadMyBookings();
+        await loadMyTrips();
         await loadTrips();
       } catch (error) {
         formMessageEl.textContent = `❌ ${error.message}`;
         formMessageEl.className = "error";
         showDebug(`❌ Booking failed: ${error.message}`);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
+
+    myBookingsListEl.addEventListener("click", async (event) => {
+      const button = event.target.closest(".cancel-btn");
+      if (!button) return;
+      if (!currentUser) {
+        formMessageEl.textContent = "❌ Нужна авторизация в Telegram";
+        formMessageEl.className = "error";
+        return;
+      }
+
+      const tripId = Number(button.dataset.tripId);
+      if (!tripId) return;
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Отмена...";
+
+      try {
+        await apiRequest(`/trips/${tripId}/book?passenger_id=${Number(currentUser.id)}`, {
+          method: "DELETE",
+        });
+        formMessageEl.textContent = "✅ Бронирование отменено";
+        formMessageEl.className = "ok";
+        await loadMyBookings();
+        await loadMyTrips();
+        await loadTrips();
+      } catch (error) {
+        formMessageEl.textContent = `❌ ${error.message}`;
+        formMessageEl.className = "error";
       } finally {
         button.disabled = false;
         button.textContent = originalText;
@@ -624,6 +751,7 @@
       await authenticate();
       await loadTrips();
       await loadMyBookings();
+      await loadMyTrips();
     })();
   </script>
 

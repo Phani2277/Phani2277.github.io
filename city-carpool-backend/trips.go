@@ -49,6 +49,18 @@ type MyBooking struct {
 	TripCreatedAt  time.Time `json:"trip_created_at"`
 }
 
+type DriverTrip struct {
+	ID             int       `json:"id"`
+	DriverID       int64     `json:"driver_id"`
+	FromLocation   string    `json:"from_location"`
+	ToLocation     string    `json:"to_location"`
+	DepartureTime  time.Time `json:"departure_time"`
+	SeatsTotal     int       `json:"seats_total"`
+	SeatsAvailable int       `json:"seats_available"`
+	CreatedAt      time.Time `json:"created_at"`
+	BookingsCount  int       `json:"bookings_count"`
+}
+
 func tripsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -67,12 +79,14 @@ func tripActionsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodPost {
+	switch r.Method {
+	case http.MethodPost:
+		bookTripHandler(w, r, tripID)
+	case http.MethodDelete:
+		unbookTripHandler(w, r, tripID)
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
-
-	bookTripHandler(w, r, tripID)
 }
 
 func parseTripBookPath(path string) (int, bool) {
@@ -273,6 +287,79 @@ func myBookingsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, bookings)
 }
 
+func myTripsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	driverIDParam := strings.TrimSpace(r.URL.Query().Get("driver_id"))
+	if driverIDParam == "" {
+		http.Error(w, "driver_id is required", http.StatusBadRequest)
+		return
+	}
+
+	driverID, err := strconv.ParseInt(driverIDParam, 10, 64)
+	if err != nil || driverID == 0 {
+		http.Error(w, "invalid driver_id", http.StatusBadRequest)
+		return
+	}
+
+	rows, err := db.Query(
+		`SELECT
+			t.id,
+			t.driver_id,
+			t.from_location,
+			t.to_location,
+			t.departure_time,
+			t.seats_total,
+			t.seats_available,
+			t.created_at,
+			COUNT(b.id) AS bookings_count
+		FROM trips t
+		LEFT JOIN trip_bookings b ON b.trip_id = t.id
+		WHERE t.driver_id = $1
+		GROUP BY t.id
+		ORDER BY t.created_at DESC, t.id DESC`,
+		driverID,
+	)
+	if err != nil {
+		log.Println("list my trips query error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	trips := make([]DriverTrip, 0)
+	for rows.Next() {
+		var trip DriverTrip
+		if err := rows.Scan(
+			&trip.ID,
+			&trip.DriverID,
+			&trip.FromLocation,
+			&trip.ToLocation,
+			&trip.DepartureTime,
+			&trip.SeatsTotal,
+			&trip.SeatsAvailable,
+			&trip.CreatedAt,
+			&trip.BookingsCount,
+		); err != nil {
+			log.Println("scan my trip error:", err)
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		trips = append(trips, trip)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Println("iterate my trips error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, trips)
+}
+
 func bookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
 	var req bookTripRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -389,6 +476,101 @@ func bookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "booked",
+		"trip":   trip,
+	})
+}
+
+func unbookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
+	passengerIDParam := strings.TrimSpace(r.URL.Query().Get("passenger_id"))
+	if passengerIDParam == "" {
+		http.Error(w, "passenger_id is required", http.StatusBadRequest)
+		return
+	}
+
+	passengerID, err := strconv.ParseInt(passengerIDParam, 10, 64)
+	if err != nil || passengerID == 0 {
+		http.Error(w, "invalid passenger_id", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		log.Println("begin unbook tx error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	err = tx.QueryRowContext(
+		r.Context(),
+		`SELECT id FROM trips WHERE id = $1 FOR UPDATE`,
+		tripID,
+	).Scan(&tripID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "trip not found", http.StatusNotFound)
+			return
+		}
+		log.Println("trip lookup for unbook error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	result, err := tx.ExecContext(
+		r.Context(),
+		`DELETE FROM trip_bookings WHERE trip_id = $1 AND passenger_id = $2`,
+		tripID,
+		passengerID,
+	)
+	if err != nil {
+		log.Println("delete booking error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Println("rows affected unbook error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if rowsAffected == 0 {
+		http.Error(w, "booking not found", http.StatusNotFound)
+		return
+	}
+
+	var trip Trip
+	err = tx.QueryRowContext(
+		r.Context(),
+		`UPDATE trips
+		 SET seats_available = LEAST(seats_available + 1, seats_total)
+		 WHERE id = $1
+		 RETURNING id, driver_id, from_location, to_location, departure_time, seats_total, seats_available, created_at`,
+		tripID,
+	).Scan(
+		&trip.ID,
+		&trip.DriverID,
+		&trip.FromLocation,
+		&trip.ToLocation,
+		&trip.DepartureTime,
+		&trip.SeatsTotal,
+		&trip.SeatsAvailable,
+		&trip.CreatedAt,
+	)
+	if err != nil {
+		log.Println("update trip after unbook error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Println("commit unbook error:", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "unbooked",
 		"trip":   trip,
 	})
 }

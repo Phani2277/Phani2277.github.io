@@ -275,8 +275,20 @@
     tg.expand();
 
     const APP_VERSION = "2026-02-24.6-bookings";
-    const apiFromQuery = new URLSearchParams(window.location.search).get("api");
-    const API_BASE = apiFromQuery || "https://charlette-nonvocational-hilma.ngrok-free.dev";
+    const APP_URL = new URL(window.location.href);
+    if (!APP_URL.searchParams.has("cb")) {
+      APP_URL.searchParams.set("cb", String(Date.now()));
+      window.location.replace(APP_URL.toString());
+    }
+
+    const API_STORAGE_KEY = "citycarpool_api_base";
+    const searchParams = new URLSearchParams(window.location.search);
+    const apiFromQuery = searchParams.get("api");
+    if (apiFromQuery) {
+      localStorage.setItem(API_STORAGE_KEY, apiFromQuery);
+    }
+    const apiFromStorage = localStorage.getItem(API_STORAGE_KEY);
+    const API_BASE = apiFromQuery || apiFromStorage || "https://charlette-nonvocational-hilma.ngrok-free.dev";
 
     const statusEl = document.getElementById("status");
     const apiInfoEl = document.getElementById("apiInfo");

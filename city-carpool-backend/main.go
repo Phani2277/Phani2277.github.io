@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -67,10 +68,18 @@ func main() {
 
 		log.Printf("✅ User authenticated: %s (ID: %d)", user.FirstName, user.ID)
 
+		sessionToken, err := sessionStore.create(user.ID, 24*time.Hour)
+		if err != nil {
+			log.Println("❌ session create error:", err)
+			http.Error(w, "session error", http.StatusInternalServerError)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"status": "ok",
-			"user":   user,
+			"status":        "ok",
+			"user":          user,
+			"session_token": sessionToken,
 		})
 	})
 

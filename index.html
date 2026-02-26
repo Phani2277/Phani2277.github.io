@@ -74,7 +74,7 @@
     }
 
     .hidden {
-      display: none;
+      display: none !important;
     }
 
     .role-actions {
@@ -422,6 +422,7 @@
     netInfoEl.textContent = `Version: ${APP_VERSION}`;
 
     let currentUser = null;
+    let sessionToken = null;
     let tripsState = [];
     let myBookingsState = [];
     let myTripsState = [];
@@ -439,12 +440,17 @@
       const url = `${API_BASE}${path}`;
       showDebug(`🔄 ${options.method || 'GET'} ${url}`);
 
+      const authHeaders = sessionToken
+        ? { Authorization: `Bearer ${sessionToken}` }
+        : {};
+
       const requestOptions = {
         cache: "no-store",
         ...options,
         headers: {
           // ВАЖНО для ngrok: пропускаем warning страницу
           'ngrok-skip-browser-warning': 'true',
+          ...authHeaders,
           ...options.headers,
         },
       };
@@ -631,7 +637,7 @@
     async function loadProfiles() {
       if (!currentUser) return;
       try {
-        const data = await apiRequest(`/profiles?telegram_id=${Number(currentUser.id)}`);
+        const data = await apiRequest(`/profiles`);
         profilesState = {
           driver: data?.driver || null,
           passenger: data?.passenger || null,
@@ -676,7 +682,7 @@
       }
 
       try {
-        const bookings = await apiRequest(`/my/bookings?passenger_id=${Number(currentUser.id)}&_=${Date.now()}`, {
+        const bookings = await apiRequest(`/my/bookings?_=${Date.now()}`, {
           method: "GET",
           headers: {
             Accept: "application/json",
@@ -720,7 +726,7 @@
       }
 
       try {
-        const trips = await apiRequest(`/my/trips?driver_id=${Number(currentUser.id)}&_=${Date.now()}`, {
+        const trips = await apiRequest(`/my/trips?_=${Date.now()}`, {
           method: "GET",
           headers: {
             Accept: "application/json",
@@ -751,8 +757,12 @@
         });
 
         currentUser = authData?.user || tg.initDataUnsafe?.user || null;
+        sessionToken = authData?.session_token || null;
         if (!currentUser) {
           throw new Error("Пользователь не найден в initData");
+        }
+        if (!sessionToken) {
+          throw new Error("Сессия не выдана сервером");
         }
 
         statusEl.textContent = `✅ ${currentUser.first_name} (ID: ${currentUser.id})`;
@@ -788,7 +798,6 @@
       profileMessageEl.className = "muted";
 
       const payloadBase = {
-        telegram_id: Number(currentUser.id),
         full_name: profileNameEl.value.trim(),
         phone: profilePhoneEl.value.trim(),
       };
@@ -861,7 +870,6 @@
       const departureISO = departureDate.toISOString();
 
       const payload = {
-        driver_id: Number(currentUser.id),
         from_location: document.getElementById("fromLocation").value.trim(),
         to_location: document.getElementById("toLocation").value.trim(),
         departure_time: departureISO,
@@ -929,8 +937,6 @@
       try {
         const result = await apiRequest(`/trips/${tripId}/book`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ passenger_id: Number(currentUser.id) }),
         });
 
         formMessageEl.textContent = "✅ Место забронировано!";
@@ -971,7 +977,7 @@
       button.textContent = "Отмена...";
 
       try {
-        await apiRequest(`/trips/${tripId}/book?passenger_id=${Number(currentUser.id)}`, {
+        await apiRequest(`/trips/${tripId}/book`, {
           method: "DELETE",
         });
         formMessageEl.textContent = "✅ Бронирование отменено";

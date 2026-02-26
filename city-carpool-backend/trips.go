@@ -25,15 +25,10 @@ type Trip struct {
 }
 
 type createTripRequest struct {
-	DriverID      int64     `json:"driver_id"`
 	FromLocation  string    `json:"from_location"`
 	ToLocation    string    `json:"to_location"`
 	DepartureTime time.Time `json:"departure_time"`
 	SeatsTotal    int       `json:"seats_total"`
-}
-
-type bookTripRequest struct {
-	PassengerID int64 `json:"passenger_id"`
 }
 
 type MyBooking struct {
@@ -104,6 +99,12 @@ func parseTripBookPath(path string) (int, bool) {
 }
 
 func createTripHandler(w http.ResponseWriter, r *http.Request) {
+	driverID, err := requireAuthUserID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req createTripRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Println("decode error:", err)
@@ -114,10 +115,6 @@ func createTripHandler(w http.ResponseWriter, r *http.Request) {
 	req.FromLocation = strings.TrimSpace(req.FromLocation)
 	req.ToLocation = strings.TrimSpace(req.ToLocation)
 
-	if req.DriverID == 0 {
-		http.Error(w, "driver_id is required", http.StatusBadRequest)
-		return
-	}
 	if req.FromLocation == "" || req.ToLocation == "" {
 		http.Error(w, "from_location and to_location are required", http.StatusBadRequest)
 		return
@@ -132,11 +129,11 @@ func createTripHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var trip Trip
-	err := db.QueryRow(
+	err = db.QueryRow(
 		`INSERT INTO trips (driver_id, from_location, to_location, departure_time, seats_total, seats_available)
 		 VALUES ($1, $2, $3, $4, $5, $5)
 		 RETURNING id, driver_id, from_location, to_location, departure_time, seats_total, seats_available, created_at`,
-		req.DriverID,
+		driverID,
 		req.FromLocation,
 		req.ToLocation,
 		req.DepartureTime,
@@ -219,15 +216,9 @@ func myBookingsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	passengerIDParam := strings.TrimSpace(r.URL.Query().Get("passenger_id"))
-	if passengerIDParam == "" {
-		http.Error(w, "passenger_id is required", http.StatusBadRequest)
-		return
-	}
-
-	passengerID, err := strconv.ParseInt(passengerIDParam, 10, 64)
-	if err != nil || passengerID == 0 {
-		http.Error(w, "invalid passenger_id", http.StatusBadRequest)
+	passengerID, err := requireAuthUserID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -293,15 +284,9 @@ func myTripsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	driverIDParam := strings.TrimSpace(r.URL.Query().Get("driver_id"))
-	if driverIDParam == "" {
-		http.Error(w, "driver_id is required", http.StatusBadRequest)
-		return
-	}
-
-	driverID, err := strconv.ParseInt(driverIDParam, 10, 64)
-	if err != nil || driverID == 0 {
-		http.Error(w, "invalid driver_id", http.StatusBadRequest)
+	driverID, err := requireAuthUserID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -361,13 +346,9 @@ func myTripsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func bookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
-	var req bookTripRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json body", http.StatusBadRequest)
-		return
-	}
-	if req.PassengerID == 0 {
-		http.Error(w, "passenger_id is required", http.StatusBadRequest)
+	passengerID, err := requireAuthUserID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -396,7 +377,7 @@ func bookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
 		return
 	}
 
-	if req.PassengerID == driverID {
+	if passengerID == driverID {
 		http.Error(w, "driver cannot book own trip", http.StatusBadRequest)
 		return
 	}
@@ -409,7 +390,7 @@ func bookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
 		r.Context(),
 		`INSERT INTO trip_bookings (trip_id, passenger_id) VALUES ($1, $2)`,
 		tripID,
-		req.PassengerID,
+		passengerID,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -481,15 +462,9 @@ func bookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
 }
 
 func unbookTripHandler(w http.ResponseWriter, r *http.Request, tripID int) {
-	passengerIDParam := strings.TrimSpace(r.URL.Query().Get("passenger_id"))
-	if passengerIDParam == "" {
-		http.Error(w, "passenger_id is required", http.StatusBadRequest)
-		return
-	}
-
-	passengerID, err := strconv.ParseInt(passengerIDParam, 10, 64)
-	if err != nil || passengerID == 0 {
-		http.Error(w, "invalid passenger_id", http.StatusBadRequest)
+	passengerID, err := requireAuthUserID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 

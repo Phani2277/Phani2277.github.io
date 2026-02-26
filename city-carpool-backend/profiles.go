@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -30,17 +29,15 @@ type PassengerProfile struct {
 }
 
 type driverProfileRequest struct {
-	TelegramID int64  `json:"telegram_id"`
-	FullName   string `json:"full_name"`
-	Phone      string `json:"phone"`
-	CarMake    string `json:"car_make"`
-	CarNumber  string `json:"car_number"`
+	FullName  string `json:"full_name"`
+	Phone     string `json:"phone"`
+	CarMake   string `json:"car_make"`
+	CarNumber string `json:"car_number"`
 }
 
 type passengerProfileRequest struct {
-	TelegramID int64  `json:"telegram_id"`
-	FullName   string `json:"full_name"`
-	Phone      string `json:"phone"`
+	FullName string `json:"full_name"`
+	Phone    string `json:"phone"`
 }
 
 func profilesHandler(w http.ResponseWriter, r *http.Request) {
@@ -49,15 +46,9 @@ func profilesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	telegramIDParam := strings.TrimSpace(r.URL.Query().Get("telegram_id"))
-	if telegramIDParam == "" {
-		http.Error(w, "telegram_id is required", http.StatusBadRequest)
-		return
-	}
-
-	telegramID, err := strconv.ParseInt(telegramIDParam, 10, 64)
-	if err != nil || telegramID == 0 {
-		http.Error(w, "invalid telegram_id", http.StatusBadRequest)
+	telegramID, err := requireAuthUserID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -87,6 +78,12 @@ func upsertDriverProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	telegramID, err := requireAuthUserID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req driverProfileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
@@ -98,17 +95,13 @@ func upsertDriverProfileHandler(w http.ResponseWriter, r *http.Request) {
 	req.CarMake = strings.TrimSpace(req.CarMake)
 	req.CarNumber = strings.TrimSpace(req.CarNumber)
 
-	if req.TelegramID == 0 {
-		http.Error(w, "telegram_id is required", http.StatusBadRequest)
-		return
-	}
 	if req.FullName == "" || req.Phone == "" || req.CarMake == "" || req.CarNumber == "" {
 		http.Error(w, "full_name, phone, car_make and car_number are required", http.StatusBadRequest)
 		return
 	}
 
 	var profile DriverProfile
-	err := db.QueryRow(
+	err = db.QueryRow(
 		`INSERT INTO driver_profiles (telegram_id, full_name, phone, car_make, car_number)
 		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (telegram_id) DO UPDATE SET
@@ -118,7 +111,7 @@ func upsertDriverProfileHandler(w http.ResponseWriter, r *http.Request) {
 		   car_number = EXCLUDED.car_number,
 		   updated_at = NOW()
 		 RETURNING telegram_id, full_name, phone, car_make, car_number, created_at, updated_at`,
-		req.TelegramID,
+		telegramID,
 		req.FullName,
 		req.Phone,
 		req.CarMake,
@@ -147,6 +140,12 @@ func upsertPassengerProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	telegramID, err := requireAuthUserID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req passengerProfileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
@@ -156,17 +155,13 @@ func upsertPassengerProfileHandler(w http.ResponseWriter, r *http.Request) {
 	req.FullName = strings.TrimSpace(req.FullName)
 	req.Phone = strings.TrimSpace(req.Phone)
 
-	if req.TelegramID == 0 {
-		http.Error(w, "telegram_id is required", http.StatusBadRequest)
-		return
-	}
 	if req.FullName == "" || req.Phone == "" {
 		http.Error(w, "full_name and phone are required", http.StatusBadRequest)
 		return
 	}
 
 	var profile PassengerProfile
-	err := db.QueryRow(
+	err = db.QueryRow(
 		`INSERT INTO passenger_profiles (telegram_id, full_name, phone)
 		 VALUES ($1, $2, $3)
 		 ON CONFLICT (telegram_id) DO UPDATE SET
@@ -174,7 +169,7 @@ func upsertPassengerProfileHandler(w http.ResponseWriter, r *http.Request) {
 		   phone = EXCLUDED.phone,
 		   updated_at = NOW()
 		 RETURNING telegram_id, full_name, phone, created_at, updated_at`,
-		req.TelegramID,
+		telegramID,
 		req.FullName,
 		req.Phone,
 	).Scan(

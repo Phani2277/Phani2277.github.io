@@ -73,6 +73,22 @@
       color: #d97706;
     }
 
+    .hidden {
+      display: none;
+    }
+
+    .role-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .profile-role-label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
     .row {
       display: grid;
       grid-template-columns: 1fr;
@@ -245,7 +261,50 @@
     <p class="muted" id="netInfo"></p>
   </div>
 
-  <div class="card">
+  <div class="card" id="roleCard">
+    <h2>Вход в режим</h2>
+    <p class="muted">Выберите, как войти в этот раз:</p>
+    <div class="role-actions">
+      <button type="button" id="roleDriverBtn">Я водитель</button>
+      <button type="button" class="secondary" id="rolePassengerBtn">Я пассажир</button>
+    </div>
+    <p class="profile-role-label" id="selectedRoleLabel"></p>
+  </div>
+
+  <div class="card hidden" id="profileCard">
+    <h2>Профиль</h2>
+    <p class="muted" id="profileHint">Заполните профиль для выбранной роли.</p>
+    <form id="profileForm">
+      <div class="row">
+        <div>
+          <label for="profileName">Имя</label>
+          <input id="profileName" name="profileName" type="text" required />
+        </div>
+        <div>
+          <label for="profilePhone">Телефон</label>
+          <input id="profilePhone" name="profilePhone" type="text" placeholder="+7..." required />
+        </div>
+      </div>
+
+      <div class="row hidden" id="driverOnlyFields">
+        <div>
+          <label for="profileCarMake">Марка машины</label>
+          <input id="profileCarMake" name="profileCarMake" type="text" />
+        </div>
+        <div>
+          <label for="profileCarNumber">Номер машины</label>
+          <input id="profileCarNumber" name="profileCarNumber" type="text" />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" id="saveProfileBtn">Сохранить и продолжить</button>
+      </div>
+    </form>
+    <p class="muted" id="profileMessage"></p>
+  </div>
+
+  <div class="card hidden" id="createTripCard">
     <h2>Создать маршрут</h2>
     <form id="tripForm">
       <div class="row">
@@ -278,7 +337,7 @@
     <p class="muted" id="formMessage"></p>
   </div>
 
-  <div class="card">
+  <div class="card hidden" id="tripsCard">
     <h2>Маршруты</h2>
     <div id="tripsList">
       <p class="muted">Загрузка...</p>
@@ -286,7 +345,7 @@
     <div id="debugInfo" class="debug" style="display:none;"></div>
   </div>
 
-  <div class="card">
+  <div class="card hidden" id="myBookingsCard">
     <h2>Мои бронирования</h2>
     <div class="actions">
       <button type="button" class="secondary" id="refreshBookingsBtn">Обновить бронирования</button>
@@ -296,7 +355,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card hidden" id="myTripsCard">
     <h2>Мои маршруты</h2>
     <div class="actions">
       <button type="button" class="secondary" id="refreshMyTripsBtn">Обновить мои маршруты</button>
@@ -311,7 +370,7 @@
     tg.ready();
     tg.expand();
 
-    const APP_VERSION = "2026-02-24.7-driver";
+    const APP_VERSION = "2026-02-24.8-role";
     const APP_URL = new URL(window.location.href);
     if (!APP_URL.searchParams.has("cb")) {
       APP_URL.searchParams.set("cb", String(Date.now()));
@@ -331,15 +390,33 @@
     const apiInfoEl = document.getElementById("apiInfo");
     const netInfoEl = document.getElementById("netInfo");
     const formMessageEl = document.getElementById("formMessage");
+    const profileMessageEl = document.getElementById("profileMessage");
     const tripsListEl = document.getElementById("tripsList");
     const debugInfoEl = document.getElementById("debugInfo");
     const tripFormEl = document.getElementById("tripForm");
+    const profileFormEl = document.getElementById("profileForm");
     const createTripBtn = document.getElementById("createTripBtn");
+    const saveProfileBtn = document.getElementById("saveProfileBtn");
     const refreshTripsBtn = document.getElementById("refreshTripsBtn");
     const refreshBookingsBtn = document.getElementById("refreshBookingsBtn");
     const myBookingsListEl = document.getElementById("myBookingsList");
     const refreshMyTripsBtn = document.getElementById("refreshMyTripsBtn");
     const myTripsListEl = document.getElementById("myTripsList");
+    const roleCardEl = document.getElementById("roleCard");
+    const profileCardEl = document.getElementById("profileCard");
+    const createTripCardEl = document.getElementById("createTripCard");
+    const tripsCardEl = document.getElementById("tripsCard");
+    const myBookingsCardEl = document.getElementById("myBookingsCard");
+    const myTripsCardEl = document.getElementById("myTripsCard");
+    const roleDriverBtn = document.getElementById("roleDriverBtn");
+    const rolePassengerBtn = document.getElementById("rolePassengerBtn");
+    const selectedRoleLabelEl = document.getElementById("selectedRoleLabel");
+    const profileHintEl = document.getElementById("profileHint");
+    const profileNameEl = document.getElementById("profileName");
+    const profilePhoneEl = document.getElementById("profilePhone");
+    const profileCarMakeEl = document.getElementById("profileCarMake");
+    const profileCarNumberEl = document.getElementById("profileCarNumber");
+    const driverOnlyFieldsEl = document.getElementById("driverOnlyFields");
 
     apiInfoEl.textContent = `API: ${API_BASE}`;
     netInfoEl.textContent = `Version: ${APP_VERSION}`;
@@ -348,6 +425,9 @@
     let tripsState = [];
     let myBookingsState = [];
     let myTripsState = [];
+    let selectedRole = null;
+    let profileReady = false;
+    let profilesState = { driver: null, passenger: null };
 
     function showDebug(message) {
       console.log(message);
@@ -404,6 +484,80 @@
       });
     }
 
+    function setProfileFormEnabled(enabled) {
+      profileFormEl.querySelectorAll("input, button").forEach((el) => {
+        el.disabled = !enabled;
+      });
+    }
+
+    function applyRoleVisibility() {
+      if (!selectedRole || !profileReady) {
+        createTripCardEl.classList.add("hidden");
+        tripsCardEl.classList.add("hidden");
+        myBookingsCardEl.classList.add("hidden");
+        myTripsCardEl.classList.add("hidden");
+        return;
+      }
+
+      tripsCardEl.classList.remove("hidden");
+      if (selectedRole === "driver") {
+        createTripCardEl.classList.remove("hidden");
+        myTripsCardEl.classList.remove("hidden");
+        myBookingsCardEl.classList.add("hidden");
+      } else {
+        createTripCardEl.classList.add("hidden");
+        myTripsCardEl.classList.add("hidden");
+        myBookingsCardEl.classList.remove("hidden");
+      }
+    }
+
+    function fillProfileFormFromState(role) {
+      const profile = role === "driver" ? profilesState.driver : profilesState.passenger;
+
+      profileNameEl.value = profile?.full_name || "";
+      profilePhoneEl.value = profile?.phone || "";
+      if (role === "driver") {
+        profileCarMakeEl.value = profile?.car_make || "";
+        profileCarNumberEl.value = profile?.car_number || "";
+      } else {
+        profileCarMakeEl.value = "";
+        profileCarNumberEl.value = "";
+      }
+    }
+
+    function applyRoleSelection(role) {
+      selectedRole = role;
+      const isDriver = role === "driver";
+      roleDriverBtn.classList.toggle("secondary", !isDriver);
+      rolePassengerBtn.classList.toggle("secondary", isDriver);
+
+      selectedRoleLabelEl.textContent = isDriver
+        ? "Выбран режим: водитель"
+        : "Выбран режим: пассажир";
+      profileHintEl.textContent = isDriver
+        ? "Для водителя: имя, телефон, марка и номер машины."
+        : "Для пассажира: имя и телефон.";
+
+      driverOnlyFieldsEl.classList.toggle("hidden", !isDriver);
+      profileCarMakeEl.required = isDriver;
+      profileCarNumberEl.required = isDriver;
+      fillProfileFormFromState(role);
+
+      profileCardEl.classList.remove("hidden");
+
+      const hasProfile = isDriver ? Boolean(profilesState.driver) : Boolean(profilesState.passenger);
+      if (hasProfile) {
+        profileMessageEl.textContent = "Профиль найден. Можете продолжить или отредактировать.";
+        profileMessageEl.className = "ok";
+        profileReady = true;
+      } else {
+        profileMessageEl.textContent = "Заполните профиль для продолжения.";
+        profileMessageEl.className = "warning";
+        profileReady = false;
+      }
+      applyRoleVisibility();
+    }
+
     function formatDateTime(isoDate) {
       const date = new Date(isoDate);
       if (Number.isNaN(date.getTime())) return isoDate;
@@ -422,10 +576,10 @@
       trips.forEach((trip, index) => {
         showDebug(`  ${index + 1}. ${trip.from_location} -> ${trip.to_location}`);
         const isOwnTrip = currentUser && Number(currentUser.id) === Number(trip.driver_id);
-        const canBook = Boolean(currentUser) && !isOwnTrip && trip.seats_available > 0;
+        const canBook = selectedRole === "passenger" && Boolean(currentUser) && !isOwnTrip && trip.seats_available > 0;
         const tripActionHTML = canBook
           ? `<button type="button" class="book-btn" data-trip-id="${trip.id}">Забронировать место</button>`
-          : `<span class="trip-note">${isOwnTrip ? "Ваш маршрут" : (trip.seats_available > 0 ? "Требуется авторизация" : "Мест нет")}</span>`;
+          : `<span class="trip-note">${isOwnTrip ? "Ваш маршрут" : (trip.seats_available > 0 ? "Режим пассажира для бронирования" : "Мест нет")}</span>`;
 
         const card = document.createElement("div");
         card.className = "trip";
@@ -474,6 +628,20 @@
       }
     }
 
+    async function loadProfiles() {
+      if (!currentUser) return;
+      try {
+        const data = await apiRequest(`/profiles?telegram_id=${Number(currentUser.id)}`);
+        profilesState = {
+          driver: data?.driver || null,
+          passenger: data?.passenger || null,
+        };
+      } catch (error) {
+        showDebug(`❌ Load profiles failed: ${error.message}`);
+        profilesState = { driver: null, passenger: null };
+      }
+    }
+
     function renderMyBookings(bookings) {
       myBookingsListEl.innerHTML = "";
       if (!bookings || !bookings.length) {
@@ -502,7 +670,7 @@
     }
 
     async function loadMyBookings() {
-      if (!currentUser) {
+      if (!currentUser || selectedRole !== "passenger") {
         myBookingsListEl.innerHTML = `<p class="muted">Требуется авторизация.</p>`;
         return;
       }
@@ -546,7 +714,7 @@
     }
 
     async function loadMyTrips() {
-      if (!currentUser) {
+      if (!currentUser || selectedRole !== "driver") {
         myTripsListEl.innerHTML = `<p class="muted">Требуется авторизация.</p>`;
         return;
       }
@@ -599,9 +767,84 @@
       }
     }
 
+    roleDriverBtn.addEventListener("click", () => {
+      applyRoleSelection("driver");
+      loadTrips();
+      loadMyTrips();
+    });
+
+    rolePassengerBtn.addEventListener("click", () => {
+      applyRoleSelection("passenger");
+      loadTrips();
+      loadMyBookings();
+    });
+
+    profileFormEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!currentUser || !selectedRole) return;
+
+      setProfileFormEnabled(false);
+      profileMessageEl.textContent = "Сохранение профиля...";
+      profileMessageEl.className = "muted";
+
+      const payloadBase = {
+        telegram_id: Number(currentUser.id),
+        full_name: profileNameEl.value.trim(),
+        phone: profilePhoneEl.value.trim(),
+      };
+
+      try {
+        if (!payloadBase.full_name || !payloadBase.phone) {
+          throw new Error("Имя и телефон обязательны");
+        }
+
+        if (selectedRole === "driver") {
+          const driverPayload = {
+            ...payloadBase,
+            car_make: profileCarMakeEl.value.trim(),
+            car_number: profileCarNumberEl.value.trim(),
+          };
+          if (!driverPayload.car_make || !driverPayload.car_number) {
+            throw new Error("Марка и номер машины обязательны");
+          }
+          const saved = await apiRequest("/profiles/driver", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(driverPayload),
+          });
+          profilesState.driver = saved || null;
+        } else {
+          const saved = await apiRequest("/profiles/passenger", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payloadBase),
+          });
+          profilesState.passenger = saved || null;
+        }
+
+        profileReady = true;
+        profileMessageEl.textContent = "Профиль сохранен.";
+        profileMessageEl.className = "ok";
+        applyRoleVisibility();
+        await loadTrips();
+        if (selectedRole === "driver") {
+          await loadMyTrips();
+        } else {
+          await loadMyBookings();
+        }
+      } catch (error) {
+        profileReady = false;
+        applyRoleVisibility();
+        profileMessageEl.textContent = `Ошибка профиля: ${error.message}`;
+        profileMessageEl.className = "error";
+      } finally {
+        setProfileFormEnabled(true);
+      }
+    });
+
     tripFormEl.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!currentUser) return;
+      if (!currentUser || selectedRole !== "driver" || !profileReady) return;
 
       formMessageEl.textContent = "Создание маршрута...";
       formMessageEl.className = "muted";
@@ -670,8 +913,8 @@
     tripsListEl.addEventListener("click", async (event) => {
       const button = event.target.closest(".book-btn");
       if (!button) return;
-      if (!currentUser) {
-        formMessageEl.textContent = "❌ Нужна авторизация в Telegram";
+      if (!currentUser || selectedRole !== "passenger" || !profileReady) {
+        formMessageEl.textContent = "❌ Для бронирования войдите как пассажир";
         formMessageEl.className = "error";
         return;
       }
@@ -714,8 +957,8 @@
     myBookingsListEl.addEventListener("click", async (event) => {
       const button = event.target.closest(".cancel-btn");
       if (!button) return;
-      if (!currentUser) {
-        formMessageEl.textContent = "❌ Нужна авторизация в Telegram";
+      if (!currentUser || selectedRole !== "passenger" || !profileReady) {
+        formMessageEl.textContent = "❌ Для отмены брони войдите как пассажир";
         formMessageEl.className = "error";
         return;
       }
@@ -748,10 +991,17 @@
     // Запуск при загрузке
     (async () => {
       setFormEnabled(false);
+      setProfileFormEnabled(true);
+      applyRoleVisibility();
       await authenticate();
-      await loadTrips();
-      await loadMyBookings();
-      await loadMyTrips();
+      if (!currentUser) {
+        return;
+      }
+      await loadProfiles();
+      profileCardEl.classList.remove("hidden");
+      profileMessageEl.textContent = "Выберите роль для входа: водитель или пассажир.";
+      profileMessageEl.className = "muted";
+      selectedRoleLabelEl.textContent = "";
     })();
   </script>
 

@@ -78,6 +78,9 @@ func main() {
 	mux.HandleFunc("/trips/", tripActionsHandler)
 	mux.HandleFunc("/my/bookings", myBookingsHandler)
 	mux.HandleFunc("/my/trips", myTripsHandler)
+	mux.HandleFunc("/profiles", profilesHandler)
+	mux.HandleFunc("/profiles/driver", upsertDriverProfileHandler)
+	mux.HandleFunc("/profiles/passenger", upsertPassengerProfileHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
